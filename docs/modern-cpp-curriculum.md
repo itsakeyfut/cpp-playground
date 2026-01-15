@@ -63,6 +63,416 @@ Phase 4: C++26（1〜2週間） — 最新動向
 
 C++17 で導入された「書きやすさ」の改善を習得し、モダンな C++コードを書けるようになる。
 
+
+### 1.0 モダンC++の基礎（C++11〜C++14の重要機能）
+
+**このセクションは必要に応じてスキップ可能。ただし、以降の学習で必須となる概念。**
+
+#### 1.0.1 スマートポインタとRAII
+
+**Rust との比較**: `Box<T>`, `Rc<T>`, `Arc<T>`, `Weak<T>` に相当
+
+```cpp
+#include <memory>
+
+// unique_ptr: 単一所有権（Rustの Box<T>）
+std::unique_ptr<int> up = std::make_unique<int>(42);
+auto up2 = std::move(up);  // ムーブはできるがコピー不可、up は null
+
+// shared_ptr: 参照カウント（Rustの Rc<T>/Arc<T>）
+std::shared_ptr<int> sp1 = std::make_shared<int>(100);
+std::shared_ptr<int> sp2 = sp1;  // 参照カウント増加
+
+// weak_ptr: 循環参照を防ぐ（Rustの Weak<T>）
+std::weak_ptr<int> wp = sp1;
+if (auto sp = wp.lock()) {  // 生存確認
+    std::cout << *sp << "\n";
+}
+
+// 配列のunique_ptr
+auto arr = std::make_unique<int[]>(10);
+```
+
+**RAII パターン**: コンストラクタでリソース取得、デストラクタで自動解放
+
+```cpp
+class FileHandle {
+    FILE* file;
+public:
+    explicit FileHandle(const char* path) : file(fopen(path, "r")) {
+        if (!file) throw std::runtime_error("File not found");
+    }
+    ~FileHandle() { if (file) fclose(file); }
+
+    // コピー禁止、ムーブ許可
+    FileHandle(const FileHandle&) = delete;
+    FileHandle& operator=(const FileHandle&) = delete;
+    FileHandle(FileHandle&& other) noexcept : file(other.file) {
+        other.file = nullptr;
+    }
+
+    FILE* get() const { return file; }
+};
+```
+
+#### 1.0.2 ムーブセマンティクスと右辺値参照
+
+**Rust との比較**: Rust の所有権システムに対応
+
+```cpp
+// 左辺値（lvalue）と右辺値（rvalue）
+int x = 10;      // x は左辺値
+int y = x + 5;   // x + 5 は右辺値
+
+// 右辺値参照（&&）
+std::vector<int> create_vector() {
+    return std::vector<int>{1, 2, 3};  // 右辺値
+}
+std::vector<int> v = create_vector();  // ムーブされる（コピーなし）
+
+// std::move: 左辺値を右辺値にキャスト
+std::vector<int> v1{1, 2, 3};
+std::vector<int> v2 = std::move(v1);  // v1の内容をv2にムーブ（Rustのmoveと同じ）
+
+// Perfect Forwarding
+template<typename T>
+void wrapper(T&& arg) {
+    target(std::forward<T>(arg));  // argの値カテゴリを保持して転送
+}
+```
+
+#### 1.0.3 ラムダ式の詳細
+
+**Rust との比較**: クロージャに相当
+
+```cpp
+// 基本形
+auto add = [](int a, int b) { return a + b; };
+
+// キャプチャ
+int x = 10;
+auto f1 = [x]() { return x * 2; };          // 値キャプチャ
+auto f2 = [&x]() { x *= 2; };               // 参照キャプチャ
+auto f3 = [=]() { return x + y; };          // すべて値キャプチャ
+auto f4 = [&]() { x++; y++; };              // すべて参照キャプチャ
+auto f5 = [x, &y]() { return x + y; };      // 混在
+
+// ムーブキャプチャ（C++14）
+auto ptr = std::make_unique<int>(42);
+auto f6 = [ptr = std::move(ptr)]() { return *ptr; };
+
+// mutable: キャプチャした値を変更
+int count = 0;
+auto counter = [count]() mutable { return ++count; };
+
+// ジェネリックラムダ（C++14）
+auto print = [](const auto& x) { std::cout << x << "\n"; };
+
+// テンプレートラムダ（C++20）
+auto compare = []<typename T>(const T& a, const T& b) { return a < b; };
+```
+
+#### 1.0.4 例外処理とnoexcept
+
+**Rust との比較**: パニックとは異なる回復可能なエラー処理
+
+```cpp
+#include <exception>
+#include <stdexcept>
+
+try {
+    throw std::runtime_error("Something went wrong");
+} catch (const std::runtime_error& e) {
+    std::cerr << "Error: " << e.what() << "\n";
+} catch (const std::exception& e) {
+    std::cerr << "General error: " << e.what() << "\n";
+} catch (...) {
+    std::cerr << "Unknown error\n";
+}
+
+// カスタム例外
+class GameException : public std::exception {
+    std::string message;
+public:
+    explicit GameException(std::string msg) : message(std::move(msg)) {}
+    const char* what() const noexcept override { return message.c_str(); }
+};
+
+// noexcept: 例外を投げないことを保証（最適化のヒント）
+int safe_add(int a, int b) noexcept { return a + b; }
+
+// 条件付きnoexcept
+template<typename T>
+void swap_values(T& a, T& b) noexcept(std::is_nothrow_move_constructible_v<T>) {
+    T tmp = std::move(a);
+    a = std::move(b);
+    b = std::move(tmp);
+}
+```
+
+#### 1.0.5 STLコンテナ選択ガイド
+
+```cpp
+// シーケンスコンテナ
+std::array<int, 5> arr;      // 固定長配列（スタック）
+std::vector<int> vec;        // 動的配列（最もよく使う）
+std::deque<int> deq;         // 両端キュー
+std::list<int> lst;          // 双方向リンクリスト
+
+// 連想コンテナ（ソート済み、通常は赤黒木）
+std::set<int> s;             // 一意集合
+std::map<K, V> m;            // キー・バリュー
+std::multiset<int> ms;       // 重複を許すset
+std::multimap<K, V> mm;      // 重複を許すmap
+
+// 非順序連想コンテナ（ハッシュテーブル）
+std::unordered_set<int> us;  // ハッシュセット
+std::unordered_map<K, V> um; // ハッシュマップ（最速の検索）
+
+// 選択基準:
+// - ランダムアクセス必要 → vector
+// - 両端挿入/削除が多い → deque
+// - 中間挿入/削除が多い → list
+// - キーでソート必要 → map/set
+// - 検索速度重視（O(1)） → unordered_map/set
+// - スタック/キュー → deque（または専用のstack/queue）
+```
+
+#### 1.0.6 型推論（auto, decltype）
+
+```cpp
+// auto: 変数の型を推論
+auto x = 42;                    // int
+auto y = 3.14;                  // double
+auto s = std::string("hello");  // std::string
+auto vec = std::vector<int>{};  // std::vector<int>
+
+// const/参照の維持には明示的指定が必要
+const auto& ref = vec;          // const std::vector<int>&
+auto&& universal_ref = foo();   // ユニバーサル参照
+
+// decltype: 式の型を取得
+int a = 10;
+decltype(a) b = 20;             // int b = 20;
+
+// decltype(auto): 式の型をそのまま推論（C++14）
+decltype(auto) get_value() {
+    static int x = 42;
+    return (x);  // int& を返す（括弧があるため）
+}
+```
+
+**演習 1.0.1**: リソースを管理する RAII クラス（ソケットやファイル）を実装せよ。
+**演習 1.0.2**: ムーブ専用型を作成し、`std::vector`に格納して動作確認せよ。
+**演習 1.0.3**: ジェネリックラムダを使って、任意の型のコンテナをフィルタリングする関数を作れ。
+
+---
+
+
+### 1.0 モダンC++の基礎（C++11〜C++14の重要機能）
+
+**このセクションは必要に応じてスキップ可能。ただし、以降の学習で必須となる概念。**
+
+#### 1.0.1 スマートポインタとRAII
+
+**Rust との比較**: `Box<T>`, `Rc<T>`, `Arc<T>`, `Weak<T>` に相当
+
+```cpp
+#include <memory>
+
+// unique_ptr: 単一所有権（Rustの Box<T>）
+std::unique_ptr<int> up = std::make_unique<int>(42);
+auto up2 = std::move(up);  // ムーブはできるがコピー不可、up は null
+
+// shared_ptr: 参照カウント（Rustの Rc<T>/Arc<T>）
+std::shared_ptr<int> sp1 = std::make_shared<int>(100);
+std::shared_ptr<int> sp2 = sp1;  // 参照カウント増加
+
+// weak_ptr: 循環参照を防ぐ（Rustの Weak<T>）
+std::weak_ptr<int> wp = sp1;
+if (auto sp = wp.lock()) {  // 生存確認
+    std::cout << *sp << "\n";
+}
+
+// 配列のunique_ptr
+auto arr = std::make_unique<int[]>(10);
+```
+
+**RAII パターン**: コンストラクタでリソース取得、デストラクタで自動解放
+
+```cpp
+class FileHandle {
+    FILE* file;
+public:
+    explicit FileHandle(const char* path) : file(fopen(path, "r")) {
+        if (!file) throw std::runtime_error("File not found");
+    }
+    ~FileHandle() { if (file) fclose(file); }
+
+    // コピー禁止、ムーブ許可
+    FileHandle(const FileHandle&) = delete;
+    FileHandle& operator=(const FileHandle&) = delete;
+    FileHandle(FileHandle&& other) noexcept : file(other.file) {
+        other.file = nullptr;
+    }
+
+    FILE* get() const { return file; }
+};
+```
+
+#### 1.0.2 ムーブセマンティクスと右辺値参照
+
+**Rust との比較**: Rust の所有権システムに対応
+
+```cpp
+// 左辺値（lvalue）と右辺値（rvalue）
+int x = 10;      // x は左辺値
+int y = x + 5;   // x + 5 は右辺値
+
+// 右辺値参照（&&）
+std::vector<int> create_vector() {
+    return std::vector<int>{1, 2, 3};  // 右辺値
+}
+std::vector<int> v = create_vector();  // ムーブされる（コピーなし）
+
+// std::move: 左辺値を右辺値にキャスト
+std::vector<int> v1{1, 2, 3};
+std::vector<int> v2 = std::move(v1);  // v1の内容をv2にムーブ（Rustのmoveと同じ）
+
+// Perfect Forwarding
+template<typename T>
+void wrapper(T&& arg) {
+    target(std::forward<T>(arg));  // argの値カテゴリを保持して転送
+}
+```
+
+#### 1.0.3 ラムダ式の詳細
+
+**Rust との比較**: クロージャに相当
+
+```cpp
+// 基本形
+auto add = [](int a, int b) { return a + b; };
+
+// キャプチャ
+int x = 10;
+auto f1 = [x]() { return x * 2; };          // 値キャプチャ
+auto f2 = [&x]() { x *= 2; };               // 参照キャプチャ
+auto f3 = [=]() { return x + y; };          // すべて値キャプチャ
+auto f4 = [&]() { x++; y++; };              // すべて参照キャプチャ
+auto f5 = [x, &y]() { return x + y; };      // 混在
+
+// ムーブキャプチャ（C++14）
+auto ptr = std::make_unique<int>(42);
+auto f6 = [ptr = std::move(ptr)]() { return *ptr; };
+
+// mutable: キャプチャした値を変更
+int count = 0;
+auto counter = [count]() mutable { return ++count; };
+
+// ジェネリックラムダ（C++14）
+auto print = [](const auto& x) { std::cout << x << "\n"; };
+
+// テンプレートラムダ（C++20）
+auto compare = []<typename T>(const T& a, const T& b) { return a < b; };
+```
+
+#### 1.0.4 例外処理とnoexcept
+
+**Rust との比較**: パニックとは異なる回復可能なエラー処理
+
+```cpp
+#include <exception>
+#include <stdexcept>
+
+try {
+    throw std::runtime_error("Something went wrong");
+} catch (const std::runtime_error& e) {
+    std::cerr << "Error: " << e.what() << "\n";
+} catch (const std::exception& e) {
+    std::cerr << "General error: " << e.what() << "\n";
+} catch (...) {
+    std::cerr << "Unknown error\n";
+}
+
+// カスタム例外
+class GameException : public std::exception {
+    std::string message;
+public:
+    explicit GameException(std::string msg) : message(std::move(msg)) {}
+    const char* what() const noexcept override { return message.c_str(); }
+};
+
+// noexcept: 例外を投げないことを保証（最適化のヒント）
+int safe_add(int a, int b) noexcept { return a + b; }
+
+// 条件付きnoexcept
+template<typename T>
+void swap_values(T& a, T& b) noexcept(std::is_nothrow_move_constructible_v<T>) {
+    T tmp = std::move(a);
+    a = std::move(b);
+    b = std::move(tmp);
+}
+```
+
+#### 1.0.5 STLコンテナ選択ガイド
+
+```cpp
+// シーケンスコンテナ
+std::array<int, 5> arr;      // 固定長配列（スタック）
+std::vector<int> vec;        // 動的配列（最もよく使う）
+std::deque<int> deq;         // 両端キュー
+std::list<int> lst;          // 双方向リンクリスト
+
+// 連想コンテナ（ソート済み、通常は赤黒木）
+std::set<int> s;             // 一意集合
+std::map<K, V> m;            // キー・バリュー
+std::multiset<int> ms;       // 重複を許すset
+std::multimap<K, V> mm;      // 重複を許すmap
+
+// 非順序連想コンテナ（ハッシュテーブル）
+std::unordered_set<int> us;  // ハッシュセット
+std::unordered_map<K, V> um; // ハッシュマップ（最速の検索）
+
+// 選択基準:
+// - ランダムアクセス必要 → vector
+// - 両端挿入/削除が多い → deque
+// - 中間挿入/削除が多い → list
+// - キーでソート必要 → map/set
+// - 検索速度重視（O(1)） → unordered_map/set
+// - スタック/キュー → deque（または専用のstack/queue）
+```
+
+#### 1.0.6 型推論（auto, decltype）
+
+```cpp
+// auto: 変数の型を推論
+auto x = 42;                    // int
+auto y = 3.14;                  // double
+auto s = std::string("hello");  // std::string
+auto vec = std::vector<int>{};  // std::vector<int>
+
+// const/参照の維持には明示的指定が必要
+const auto& ref = vec;          // const std::vector<int>&
+auto&& universal_ref = foo();   // ユニバーサル参照
+
+// decltype: 式の型を取得
+int a = 10;
+decltype(a) b = 20;             // int b = 20;
+
+// decltype(auto): 式の型をそのまま推論（C++14）
+decltype(auto) get_value() {
+    static int x = 42;
+    return (x);  // int& を返す（括弧があるため）
+}
+```
+
+**演習 1.0.1**: リソースを管理する RAII クラス（ソケットやファイル）を実装せよ。
+**演習 1.0.2**: ムーブ専用型を作成し、`std::vector`に格納して動作確認せよ。
+**演習 1.0.3**: ジェネリックラムダを使って、任意の型のコンテナをフィルタリングする関数を作れ。
+
+---
+
 ### 1.1 構造化束縛（Structured Bindings）
 
 **Rust との比較**: パターンマッチングの分解（destructuring）に相当
@@ -896,6 +1306,78 @@ std::jthread t([](std::stop_token stoken) {
 });
 ```
 
+
+#### 2.5.7 std::source_location（C++20）
+
+デバッグ情報の取得（関数名、ファイル名、行番号）
+
+```cpp
+#include <source_location>
+
+void log_message(const std::string& msg,
+                 const std::source_location& loc = std::source_location::current()) {
+    std::cout << "[" << loc.file_name() << ":" << loc.line()
+              << " " << loc.function_name() << "] " << msg << "\n";
+}
+
+// 使用例
+log_message("Starting process");
+// 出力: [main.cpp:42 main] Starting process
+```
+
+#### 2.5.8 std::bit_cast（C++20）
+
+型安全なビット再解釈
+
+```cpp
+#include <bit>
+
+// 従来の危険な方法
+float f = 3.14f;
+uint32_t bits = *reinterpret_cast<uint32_t*>(&f);  // UB（未定義動作）
+
+// C++20の安全な方法
+float f = 3.14f;
+uint32_t bits = std::bit_cast<uint32_t>(f);  // OK、型安全
+
+// エンディアンの判定
+if (std::endian::native == std::endian::little) {
+    // リトルエンディアン環境
+}
+```
+
+#### 2.5.9 std::any（C++17）
+
+**Rust との比較**: `Box<dyn Any>` に相当
+
+```cpp
+#include <any>
+
+std::any value = 42;
+value = 3.14;
+value = std::string("hello");
+
+// 型チェックと取得
+if (value.type() == typeid(std::string)) {
+    std::string s = std::any_cast<std::string>(value);
+    std::cout << s << "\n";
+}
+
+// 安全な取得（ポインタ版）
+if (auto* str = std::any_cast<std::string>(&value)) {
+    std::cout << *str << "\n";
+}
+
+// 型が違う場合は例外（std::bad_any_cast）
+try {
+    int x = std::any_cast<int>(value);  // valueがstringの場合は例外
+} catch (const std::bad_any_cast& e) {
+    std::cerr << e.what() << "\n";
+}
+```
+
+**注意**: `std::any`は型安全だが、型情報が実行時まで分からないため、`std::variant`を使える場合はそちらを優先すべき。
+
 ---
 
 ### Phase 2 総合課題
@@ -1553,3 +2035,220 @@ struct EntityRef {
 | [WG21 Papers](https://www.open-std.org/jtc1/sc22/wg21/docs/papers/) | 標準化提案         |
 | 『C++20: The Complete Guide』                                       | C++20 の決定版書籍 |
 | 『A Tour of C++ (3rd Ed)』                                          | C++23 対応概観     |
+
+### T.4 時間操作（std::chrono）
+
+#### 時間の測定
+
+```cpp
+#include <chrono>
+
+using namespace std::chrono;
+
+// 時間計測
+auto start = high_resolution_clock::now();
+// 処理...
+auto end = high_resolution_clock::now();
+
+// 経過時間を取得
+auto duration_ms = duration_cast<milliseconds>(end - start);
+std::cout << "Elapsed: " << duration_ms.count() << "ms\n";
+
+// 経過時間を秒単位で
+auto duration_s = duration_cast<duration<double>>(end - start);
+std::cout << "Elapsed: " << duration_s.count() << "s\n";
+```
+
+#### 時間リテラル（C++14）
+
+```cpp
+using namespace std::chrono_literals;
+
+auto delay = 500ms;          // 500ミリ秒
+auto timeout = 5s;           // 5秒
+auto hour = 1h;              // 1時間
+auto minute = 30min;         // 30分
+
+// スリープ
+std::this_thread::sleep_for(100ms);
+```
+
+#### ゲーム用タイマー
+
+```cpp
+class GameTimer {
+    using clock = std::chrono::high_resolution_clock;
+    using time_point = clock::time_point;
+
+    time_point last_frame;
+    double delta_time;
+
+public:
+    GameTimer() : last_frame(clock::now()), delta_time(0.0) {}
+
+    void tick() {
+        auto now = clock::now();
+        auto duration = std::chrono::duration<double>(now - last_frame);
+        delta_time = duration.count();
+        last_frame = now;
+    }
+
+    double get_delta_time() const { return delta_time; }
+    double get_fps() const { return 1.0 / delta_time; }
+};
+```
+
+---
+
+### T.5 正規表現（std::regex）
+
+```cpp
+#include <regex>
+
+std::string text = "Email: test@example.com";
+std::regex pattern(R"(\b\w+@\w+\.\w+\b)");
+
+// 検索
+if (std::regex_search(text, pattern)) {
+    std::cout << "Email found\n";
+}
+
+// マッチ結果の取得
+std::smatch match;
+if (std::regex_search(text, match, pattern)) {
+    std::cout << "Email: " << match[0] << "\n";
+}
+
+// 全体マッチ
+std::string ip = "192.168.1.1";
+std::regex ip_pattern(R"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})");
+if (std::regex_match(ip, ip_pattern)) {
+    std::cout << "Valid IP\n";
+}
+
+// 置換
+std::string censored = std::regex_replace(text,
+    std::regex(R"(\w+@)"), "****@");
+// 結果: "Email: ****@example.com"
+
+// イテレータで全マッチを取得
+std::string log = "Error 404, Warning 200, Error 500";
+std::regex code_pattern(R"(\d+)");
+auto begin = std::sregex_iterator(log.begin(), log.end(), code_pattern);
+auto end = std::sregex_iterator();
+
+for (auto it = begin; it != end; ++it) {
+    std::cout << "Code: " << it->str() << "\n";
+}
+```
+
+**パフォーマンス注意**: `std::regex`はコンパイル時にパターンを処理するため、頻繁にパターンを変更する場合は遅い。可能な限りregexオブジェクトを再利用すること。
+
+---
+
+### T.6 値カテゴリ（Value Categories）
+
+**C++の値カテゴリ（完全版）**
+
+```
+         expression
+          /      \
+      glvalue    rvalue
+       /  \       /  \
+  lvalue  xvalue  prvalue
+```
+
+#### 分類の説明
+
+```cpp
+// lvalue（left value）: 名前を持つオブジェクト
+int x = 10;         // x は lvalue
+int& ref = x;       // ref は lvalue
+
+// prvalue（pure rvalue）: 一時オブジェクト
+int y = 42;         // 42 は prvalue
+std::string s = std::string("temp");  // std::string("temp") は prvalue
+
+// xvalue（expiring value）: ムーブ元
+int&& rref = std::move(x);  // std::move(x) は xvalue
+std::vector<int> v = std::vector<int>{1, 2, 3};  // 右辺は xvalue
+
+// glvalue（generalized lvalue）: lvalue または xvalue
+// rvalue: prvalue または xvalue
+```
+
+#### 実用例
+
+```cpp
+template<typename T>
+struct Widget {
+    // lvalue参照: コピー
+    void process(T& value) {
+        std::cout << "lvalue\n";
+    }
+
+    // rvalue参照: ムーブ
+    void process(T&& value) {
+        std::cout << "rvalue\n";
+    }
+};
+
+Widget<std::string> w;
+std::string s = "hello";
+w.process(s);                // lvalue版が呼ばれる
+w.process(std::move(s));     // rvalue版が呼ばれる
+w.process(std::string("hi")); // rvalue版が呼ばれる
+```
+
+---
+
+### T.7 アルゴリズムライブラリ（主要関数）
+
+モダンC++でよく使うアルゴリズム
+
+```cpp
+#include <algorithm>
+#include <numeric>
+
+std::vector<int> v = {3, 1, 4, 1, 5, 9, 2, 6};
+
+// ソート
+std::sort(v.begin(), v.end());
+std::sort(v.begin(), v.end(), std::greater<>());  // 降順
+
+// 検索
+auto it = std::find(v.begin(), v.end(), 5);
+auto it2 = std::find_if(v.begin(), v.end(), [](int n) { return n > 5; });
+
+// 存在チェック
+bool exists = std::any_of(v.begin(), v.end(), [](int n) { return n > 8; });
+bool all_positive = std::all_of(v.begin(), v.end(), [](int n) { return n > 0; });
+
+// 変換
+std::vector<int> doubled(v.size());
+std::transform(v.begin(), v.end(), doubled.begin(), [](int n) { return n * 2; });
+
+// フィルタ（コピー）
+std::vector<int> evens;
+std::copy_if(v.begin(), v.end(), std::back_inserter(evens),
+    [](int n) { return n % 2 == 0; });
+
+// 削除（erase-removeイディオム）
+v.erase(std::remove(v.begin(), v.end(), 1), v.end());
+
+// 集計
+int sum = std::accumulate(v.begin(), v.end(), 0);
+int product = std::accumulate(v.begin(), v.end(), 1, std::multiplies<>());
+
+// reduce（C++17、並列化可能）
+int sum2 = std::reduce(std::execution::par, v.begin(), v.end());
+
+// ユニーク化（重複削除）
+std::sort(v.begin(), v.end());
+v.erase(std::unique(v.begin(), v.end()), v.end());
+
+// パーティション（条件で分割）
+std::partition(v.begin(), v.end(), [](int n) { return n % 2 == 0; });
+// 結果: [偶数...][奇数...]
+```
+

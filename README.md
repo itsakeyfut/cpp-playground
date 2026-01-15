@@ -1,107 +1,88 @@
-# C++ Playground
+# cpp-playground
 
-C++の学習リポジトリです。
-以下は構想しているディレクトリ構成です：
+モダン C++（C++17〜C++26）の学習リポジトリ。
+
+## 目的
+
+- **Unreal Engine 5.7** でのゲーム開発に向けたモダン C++の習得
+- 各 C++標準の新機能を実際にコードを書いて理解する
+- 学習の記録を残し、後から参照できるようにする
+
+### Unreal Engine 5.7 互換性
+
+- UE 5.7 は **C++20** をデフォルト・最小要件として使用
+- このプロジェクトのデフォルトC++標準は **C++20** に設定
+- C++23/C++26 は学習目的で利用可能（UE本番コードでは使用不可）
+
+## ディレクトリ構成
 
 ```
 cpp-playground/
-├── README.md                    # リポジトリ概要
-├── PROGRESS.md                  # 学習進捗管理
-├── docs/
-│   └── modern-cpp-curriculum.md # カリキュラム本体
-│
-├── CMakeLists.txt               # ルートCMake（全体ビルド用）
-├── .clang-format                # コードスタイル統一
-├── .gitignore
-│
-├── cpp17/                       # Phase 1
-│   ├── CMakeLists.txt
-│   ├── exercises/               # 小演習
-│   │   ├── 01_structured_bindings/
-│   │   │   ├── CMakeLists.txt
-│   │   │   ├── main.cpp
-│   │   │   └── README.md        # 課題説明・学んだこと
-│   │   ├── 02_if_init/
-│   │   ├── 03_ctad/
-│   │   ├── 04_constexpr_if/
-│   │   ├── 05_fold_expressions/
-│   │   ├── 06_optional/
-│   │   ├── 07_variant/
-│   │   ├── 08_string_view/
-│   │   ├── 09_filesystem/
-│   │   └── 10_parallel_algorithms/
-│   └── projects/                # 総合課題
-│       └── asset_manager/
-│           ├── CMakeLists.txt
-│           ├── src/
-│           ├── include/
-│           └── README.md
-│
-├── cpp20/                       # Phase 2
-│   ├── CMakeLists.txt
-│   ├── exercises/
-│   │   ├── 01_concepts_basic/
-│   │   ├── 02_concepts_custom/
-│   │   ├── 03_ranges_basic/
-│   │   ├── 04_ranges_views/
-│   │   ├── 05_coroutines_generator/
-│   │   ├── 06_coroutines_async/
-│   │   ├── 07_modules/
-│   │   ├── 08_span/
-│   │   ├── 09_format/
-│   │   ├── 10_spaceship/
-│   │   └── 11_jthread/
-│   └── projects/
-│       ├── event_system/
-│       ├── data_pipeline/
-│       └── async_loader/
-│
-├── cpp23/                       # Phase 3
-│   ├── CMakeLists.txt
-│   ├── exercises/
-│   │   ├── 01_expected/
-│   │   ├── 02_mdspan/
-│   │   ├── 03_generator/
-│   │   ├── 04_print/
-│   │   ├── 05_deducing_this/
-│   │   ├── 06_flat_containers/
-│   │   └── 07_ranges_extended/
-│   └── projects/
-│       ├── config_parser/
-│       └── image_processing/
-│
-├── cpp26/                       # Phase 4（実験的）
-│   ├── CMakeLists.txt
-│   ├── experiments/             # 提案段階の機能実験
-│   │   ├── reflection/
-│   │   ├── contracts/
-│   │   └── pattern_matching/
-│   └── notes/                   # 調査メモ
-│
-├── cross_cutting/               # 横断トピック
-│   ├── CMakeLists.txt
-│   ├── template_metaprogramming/
-│   ├── memory_model/
-│   ├── data_oriented_design/
-│   └── benchmarks/              # パフォーマンス比較
-│
-├── sandbox/                     # 一時的な実験用
-│   ├── CMakeLists.txt
-│   └── scratch.cpp              # 気軽に試すファイル
-│
-└── libs/                        # 共通ユーティリティ（必要に応じて）
-    ├── CMakeLists.txt
-    └── include/
-        └── playground/
-            └── common.hpp
+├── docs/                    # カリキュラム・ドキュメント
+├── cpp17/                   # C++17 演習・プロジェクト
+├── cpp20/                   # C++20 演習・プロジェクト
+├── cpp23/                   # C++23 演習・プロジェクト
+├── cpp26/                   # C++26 実験（提案段階の機能）
+├── cross_cutting/           # 横断トピック（テンプレート、並行性、DOD）
+├── sandbox/                 # 一時的な実験用
+└── libs/                    # 共通ユーティリティ
 ```
 
-## 設計意図
+## 必要環境
 
-| ディレクトリ     | 役割                                               |
-| ---------------- | -------------------------------------------------- |
-| `exercises/`     | 各トピックの小さな演習。1 ファイル〜数ファイル程度 |
-| `projects/`      | 複数トピックを組み合わせた総合課題                 |
-| `sandbox/`       | 気軽に試す場所。コミットしなくても OK              |
-| `cross_cutting/` | 特定バージョンに依存しないトピック                 |
-| `libs/`          | 複数プロジェクトで使い回すヘルパー                 |
+- **コンパイラ**: Clang 20+ / GCC 14+ / MSVC 19.39+（C++23完全サポート）
+  - 現在の環境: Clang 20.1.6 ✅
+- **CMake**: 3.20以上、4.0推奨
+  - 現在の環境: CMake 4.0.3 ✅
+- **ビルドツール**: Ninja（推奨）または Make
+
+## ビルド方法
+
+### 基本ビルド
+
+```bash
+# 全体ビルド
+cmake -B build
+cmake --build build
+
+# 特定のバージョンのみビルド
+cmake -B build -DBUILD_CPP23=OFF -DBUILD_CPP26=OFF
+cmake --build build
+```
+
+### 厳格モード（推奨）
+
+コード品質と安全性を重視する場合：
+
+```bash
+# Clang-Tidy静的解析を有効化
+cmake -B build -DENABLE_CLANG_TIDY=ON
+cmake --build build
+
+# 警告をエラーとして扱う（厳格モード）
+cmake -B build -DENABLE_WARNINGS_AS_ERRORS=ON
+cmake --build build
+
+# サニタイザーを有効化（デバッグ時）
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DENABLE_SANITIZERS=ON
+cmake --build build
+```
+
+詳細は以下のドキュメントを参照：
+- **[Unreal Engine 5.7向けC++20学習ガイド](docs/unreal-engine-cpp20-guide.md)** ⭐ 必読
+- [clang-formatについて](docs/clang-format.md)
+- [clang-tidyについて](docs/clang-tidy.md)
+- [コンパイラサポート状況](docs/cpp-compiler-support.md)
+
+## C++標準の指定
+
+各演習は適切な C++標準でビルドされます：
+
+| ディレクトリ | C++標準 | コンパイルオプション | UE 5.7互換性 | 備考 |
+| ------------ | ------- | -------------------- | ------------ | ---- |
+| cpp17/       | C++17   | `-std=c++17`         | ⚠️ 非推奨 | UE 5.6以前 |
+| cpp20/       | C++20   | `-std=c++20`         | ✅ **必須** | **UE 5.7デフォルト** |
+| cpp23/       | C++23   | `-std=c++23`         | ❌ 未サポート | 学習用のみ |
+| cpp26/       | C++26   | `-std=c++26`         | ❌ 未サポート | 学習用・実験的 |
+
+**重要**: Unreal Engine 5.7との互換性を考慮し、プロジェクトのデフォルトC++標準は**C++20**に設定されています。
